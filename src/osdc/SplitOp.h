@@ -387,6 +387,16 @@ class SplitOp {
   */
  static bool create(Objecter::Op *op, Objecter &objecter,
    shunique_lock<ceph::shared_mutex>& sul, CephContext *cct);
+
+  std::string get_oid_prefix() const {
+    std::stringstream ss;
+    if (orig_op) {
+      ss << "Object_ID(" << orig_op->target.base_oid << ") ";
+    } else {
+      ss << "Object_ID(NULL) ";
+    }
+    return ss.str();
+  }
 };
 
 /**

@@ -27,7 +27,7 @@ inline boost::system::error_code osdcode(int r) {
 constexpr static uint64_t kReplicaMinShardReads = 2;
 
 #undef dout_prefix
-#define dout_prefix *_dout << " ECSplitOp::"
+#define dout_prefix *_dout << " " << this->get_oid_prefix() << " ECSplitOp::"
 
 /**
  * @brief Assemble sparse read results from EC shards into logical object view.
@@ -43,7 +43,6 @@ constexpr static uint64_t kReplicaMinShardReads = 2;
 std::pair<SplitOp::extent_set, bufferlist> ECSplitOp::assemble_buffer_sparse_read(int ops_index) const {
   bufferlist bl_out;
   extent_set extents_out;
-
 
   auto &orig_osd_op = orig_op->ops[ops_index].op;
   const pg_pool_t *pi = objecter.osdmap->get_pg_pool(orig_op->target.base_oloc.pool);
@@ -218,7 +217,7 @@ ECSplitOp::ECSplitOp(Objecter::Op *op, Objecter &objecter, CephContext *cct, int
   SplitOp(op, objecter, cct, count) {}
 
 #undef dout_prefix
-#define dout_prefix *_dout << " ReplicaSplitOp::"
+#define dout_prefix *_dout << " " << this->get_oid_prefix() << " ReplicaSplitOp::"
 
 /**
  * @brief Assemble sparse read results from replicas.
@@ -327,7 +326,7 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
 }
 
 #undef dout_prefix
-#define dout_prefix *_dout << " SplitOp::"
+#define dout_prefix *_dout << " " << this->get_oid_prefix() << " SplitOp::"
 
 /**
  * @brief Assemble the final return code from all sub-operations.
@@ -596,6 +595,9 @@ void SplitOp::init(OSDOp &op, int ops_index) {
   }
   }
 }
+
+#undef dout_prefix
+#define dout_prefix *_dout << " SplitOp::"
 
 namespace {
 std::pair<bool, bool> is_single_chunk(const pg_pool_t *pi, uint64_t offset, uint64_t len) {
