@@ -2723,6 +2723,15 @@ options:
   services:
   - mon
   with_legacy: true
+- name: osd_pool_default_flag_ec_direct_reads
+  type: bool
+  level: advanced
+  desc: Control whether to create new erasure coded pools with EC Direct Reads turned on by default.
+  fmt_desc: Set the ``allow_ec_direct_reads`` flag on new erasure coded pools.
+  default: false
+  services:
+  - mon
+  with_legacy: true
 - name: osd_pool_default_hit_set_bloom_fpp
   type: float
   level: advanced

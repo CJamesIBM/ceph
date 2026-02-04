@@ -8358,7 +8358,9 @@ int OSDMonitor::prepare_new_pool(string& name,
     enable_pool_ec_optimizations(*pi, nullptr, true);
   }
 
-  enable_pool_ec_direct_reads(*pi);
+  if (cct->_conf.get_val<bool>("osd_pool_default_flag_ec_direct_reads")) {
+    enable_pool_ec_direct_reads(*pi);
+  }
 
   pending_inc.new_pool_names[pool] = name;
   return 0;
