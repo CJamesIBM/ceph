@@ -699,7 +699,7 @@ bs::error_code Objecter::_normalize_watch_error(bs::error_code ec)
 
 void Objecter::_linger_reconnect(LingerOp *info, bs::error_code ec)
 {
-  ldout(cct, 10) << __func__ << " " << info->linger_id << " = " << ec 
+  ldout(cct, 10) << __func__ << " " << info->linger_id << " = " << ec
 		 << " (last_error " << info->last_error << ")" << dendl;
   std::unique_lock wl(info->watch_lock);
   if (ec) {
@@ -1910,6 +1910,10 @@ int Objecter::_get_session(int osd, OSDSession **session,
 {
   ceph_assert(sul && sul.mutex() == &rwlock);
 
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " Called for osd=" << osd
+                 << " sul.owns_lock() (Write Lock) = " << sul.owns_lock() << dendl;
+
   if (osd < 0) {
     *session = homeless_session;
     ldout(cct, 20) << __func__ << " osd=" << osd << " returning homeless"
@@ -1919,6 +1923,10 @@ int Objecter::_get_session(int osd, OSDSession **session,
 
   auto p = osd_sessions.find(osd);
   if (p != osd_sessions.end()) {
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " Found existing session for osd=" << osd << dendl;
+
     auto s = p->second;
     s->get();
     *session = s;
@@ -1927,6 +1935,9 @@ int Objecter::_get_session(int osd, OSDSession **session,
     return 0;
   }
   if (!sul.owns_lock()) {
+    ldout(cct, 10) << "[CAL_DEBUG]" << __func__
+                   << " FAILED: Session for osd=" << osd
+                   << " not found, and we don't have the write lock. Returning -EAGAIN." << dendl;
     return -EAGAIN;
   }
   auto s = new OSDSession(cct, osd);
@@ -1939,6 +1950,10 @@ int Objecter::_get_session(int osd, OSDSession **session,
   *session = s;
   ldout(cct, 20) << __func__ << " s=" << s << " osd=" << osd << " "
 		 << s->get_nref() << dendl;
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " Created new session for osd=" << osd << dendl;
+
   return 0;
 }
 
@@ -2452,8 +2467,16 @@ void Objecter::_op_submit_with_budget(Op *op,
 				      op_cancel(tid, -ETIMEDOUT); });
   }
 
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " BEFORE SplitOp: tid " << op->tid
+                 << " target.osd " << op->target.osd << dendl;
+
 
   bool was_split = SplitOp::create(op, *this, sul, cct);
+
+   ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " AFTER SplitOp: was_split " << was_split
+                 << " target.osd " << op->target.osd << dendl;
 
   if (was_split) {
     // All the ops have been sent, but we need to track the op with a tid.
@@ -2462,6 +2485,10 @@ void Objecter::_op_submit_with_budget(Op *op,
     }
     *ptid = op->tid;
     OSDSession *s;
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " Calling _get_session for osd " << op->target.osd << dendl;
+
     int r = _get_session(op->target.osd, &s, sul);
     // The lock has been held since the last calc_target, so it should not
     // be possible for a new map to have appeared.
@@ -2602,16 +2629,45 @@ void Objecter::_op_submit(Op *op, shunique_lock<ceph::shared_mutex>& sul, ceph_t
   }
 
   // Try to get a session, including a retry if we need to take write lock
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__ << " _op_submit is calling _get_session for osd " << op->target.osd << dendl;
+
   r = _get_session(op->target.osd, &s, sul);
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " _get_session returned " << r
+                 << " for osd " << op->target.osd << dendl;
+
   if (r == -EAGAIN ||
       (check_for_latest_map && sul.owns_lock_shared()) ||
       cct->_conf->objecter_debug_inject_relock_delay) {
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " r is still EAGAIN so we are relocking to recalc target for osd " << op->target.osd
+                   << dendl;
     epoch_t orig_epoch = osdmap->get_epoch();
     sul.unlock();
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " We have unlocked. Now checking the value of objecter_debug_inject_relock_delay which is " << cct->_conf->objecter_debug_inject_relock_delay << dendl;
+
     if (cct->_conf->objecter_debug_inject_relock_delay) {
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " Injecting a sleep of 1 second before relock" << dendl;
       sleep(1);
     }
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " Attempting to relock now for osd " << op->target.osd
+                   << dendl;
+
     sul.lock();
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " we have now relocked. After relock, osdmap epoch is " << osdmap->get_epoch()
+                   << " (orig epoch " << orig_epoch << ")" << dendl;
+
     if (orig_epoch != osdmap->get_epoch()) {
       // map changed; recalculate mapping
       ldout(cct, 10) << __func__ << " relock raced with osdmap, recalc target"
@@ -2624,13 +2680,29 @@ void Objecter::_op_submit(Op *op, shunique_lock<ceph::shared_mutex>& sul, ceph_t
 	r = -EAGAIN;
       }
     }
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " We have made it to the end of this if statement. The value of r is " << r
+                   << " and the target osd is " << op->target.osd << dendl;
   }
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " after possible relock _get_session returned " << r
+                 << " for osd " << op->target.osd << dendl;
+
   if (r == -EAGAIN) {
+
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " trying again to get session for osd " << op->target.osd
+                   << dendl;
     ceph_assert(s == NULL);
     r = _get_session(op->target.osd, &s, sul);
   }
   ceph_assert(r == 0);
   ceph_assert(s);  // may be homeless
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " _op_submit target osd is now " << op->target.osd << dendl;
 
   _send_op_account(op);
 

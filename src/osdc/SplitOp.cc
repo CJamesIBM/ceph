@@ -209,7 +209,7 @@ void ECSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
     reference_sub_read = (int)target.actual_pgid.shard;
     sub_reads.emplace(reference_sub_read, orig_op->ops.size() + 1);
   }
-  
+
   ceph_assert(reference_sub_read != -1);
 }
 
@@ -881,6 +881,10 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
   shunique_lock<ceph::shared_mutex>& sul, CephContext *cct) {
 
   auto &target = op->target;
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " Start: parent target.osd=" << target.osd << dendl;
+
   const pg_pool_t *pi = objecter.osdmap->get_pg_pool(target.base_oloc.pool);
 
   // STAGE 1: Cheap validation tests run first before creating split op
@@ -927,6 +931,9 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
   // Populate the target, to extract the acting set from it.
   target.flags &= ~CEPH_OSD_FLAG_BALANCE_READS;
   objecter._calc_target(&op->target, op);
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " After calc_target: parent target.osd=" << op->target.osd << dendl;
 
   // STAGE 4: Initialize sub-operations (may set abort if problems detected)
   for (unsigned i = 0; i < op->ops.size(); ++i) {
@@ -985,12 +992,19 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
     }
     st.osd = st.acting[index];
 
+    ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                   << " Sending sub_op to Replica osd=" << st.osd
+                   << ". Current parent target.osd is =" << op->target.osd << dendl;
+
     objecter._op_submit(sub_op, sul, &tids[i++]);
 
     debug_op_summary("sent_op", sub_op, cct);
   }
 
   ceph_assert(split_read->sub_reads.size() > 0);
+
+  ldout(cct, 10) << "[CAL_DEBUG] " << __func__
+                 << " Returning TRUE. Final parent target.osd=" << op->target.osd << dendl;
 
   return true;
 }
