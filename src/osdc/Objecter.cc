@@ -2461,16 +2461,11 @@ void Objecter::_op_submit_with_budget(Op *op,
       op->tid = ++last_tid;
     }
     *ptid = op->tid;
-    OSDSession *s;
-    int r = _get_session(op->target.osd, &s, sul);
-    // The lock has been held since the last calc_target, so it should not
-    // be possible for a new map to have appeared.
-    ceph_assert(r == 0);
-    unique_lock sl(s->lock);
-    _session_op_assign(s, op);
+    unique_lock sl(homeless_session->lock);
+    _session_op_assign(homeless_session, op);
     inflight_ops++;
     sl.unlock();
-    put_session(s);
+    put_session(homeless_session);
   } else {
     _op_submit(op, sul, ptid);
   }
