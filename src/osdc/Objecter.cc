@@ -192,6 +192,7 @@ enum {
   l_osdc_replica_read_completed,
 
   l_osdc_split_op_reads,
+  l_osdc_ec_read_bounced,
 
   l_osdc_last,
 };
@@ -408,6 +409,8 @@ void Objecter::init()
 			"Operations completed by replica");
     pcb.add_u64_counter(l_osdc_split_op_reads, "split_op_reads",
                     "Client read ops split by SplitOp");
+    pcb.add_u64_counter(l_osdc_ec_read_bounced, "ec_read_bounced",
+                    "Operations bounced by EC to be resent to primary");
 
     logger = pcb.create_perf_counters();
     cct->get_perfcounters_collection()->add(logger);
@@ -3869,6 +3872,12 @@ void Objecter::handle_osd_op_reply(MOSDOpReply *m)
       logger->inc(l_osdc_replica_read_bounced);
     } else {
       logger->inc(l_osdc_replica_read_completed);
+    }
+  }
+
+  if (op->target.flags & CEPH_OSD_FLAG_EC_DIRECT_READ) {
+    if (rc == -EAGAIN) {
+      logger->inc(l_osdc_ec_read_bounced);
     }
   }
 
