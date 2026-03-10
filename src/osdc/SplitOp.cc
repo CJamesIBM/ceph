@@ -16,7 +16,7 @@
 using namespace std::literals;
 
 #define dout_subsys ceph_subsys_objecter
-#define DBG_LVL 20
+#define DBG_LVL 2
 
 namespace {
 inline boost::system::error_code osdcode(int r) {
