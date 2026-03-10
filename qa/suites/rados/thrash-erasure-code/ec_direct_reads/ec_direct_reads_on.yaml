@@ -4,5 +4,8 @@ overrides:
       global:
         enable experimental unrecoverable data corrupting features: '*'
         osd_pool_default_flag_ec_direct_reads: true
-        debug objecter: 20
+        rados_replica_read_policy: balance
+        osd_pool_default_flags: 1048576
+      osd:
+        rados_replica_read_policy: balance
 
