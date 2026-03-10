@@ -987,6 +987,8 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
 
     objecter._op_submit(sub_op, sul, &tids[i++]);
 
+    ldout(cct, DBG_LVL) << "SENT sub_op tid=" << sub_op->tid << " for orig_op tid " << op->tid << " to osd." << st.osd << dendl;
+
     debug_op_summary("sent_op", sub_op, cct);
   }
 
