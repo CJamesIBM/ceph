@@ -2404,11 +2404,11 @@ void Objecter::op_post_split_op_complete(Op* op, bs::error_code ec, int rc) {
       // This function unlocks sl.
       complete_op_reply(op, ec, op->session, sl, rc);
     } else {
+      ldout(cct, 2) << __func__ << "EAGAIN returned, resubmitting op for tid " << op->tid << dendl;
       _session_op_remove(op->session, op);
       sl.unlock();
       op->split_op_tids.reset();
       ceph_tid_t tid = 0;
-      op->tid = 0;
       _op_submit(op, rl, &tid);
     }
   });
@@ -3890,11 +3890,14 @@ void Objecter::handle_osd_op_reply(MOSDOpReply *m)
   }
 
   if (rc == -EAGAIN && (op->target.flags & CEPH_OSD_FLAG_FAIL_ON_EAGAIN) == 0) {
-    ldout(cct, 7) << " got -EAGAIN, resubmitting" << dendl;
+    ldout(cct, 2) << __func__ << " got -EAGAIN, resubmitting op for tid " << op->tid << dendl;
     if (op->has_completion())
       num_in_flight--;
     _session_op_remove(s, op);
     sl.unlock();
+
+    ceph_tid_t old_tid = op->tid;
+    ceph_tid_t new_tid = 0;
 
     op->tid = 0;
     op->target.flags &= ~CEPH_OSD_FLAGS_DIRECT_READ;
@@ -3904,7 +3907,12 @@ void Objecter::handle_osd_op_reply(MOSDOpReply *m)
     // read flag.
     op->target.flags &= ~CEPH_OSD_FLAG_FORCE_OSD;
     op->target.pgid = pg_t();
-    _op_submit(op, sul, NULL);
+    _op_submit(op, sul, &new_tid);
+
+    ldout(cct, 2) << __func__ << " this is the retried op with tid " << new_tid
+                  << " it used to be tid " << old_tid << dendl;
+
+
     m->put();
     return;
   }
