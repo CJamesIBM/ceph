@@ -2408,6 +2408,7 @@ void Objecter::op_post_split_op_complete(Op* op, bs::error_code ec, int rc) {
       sl.unlock();
       op->split_op_tids.reset();
       ceph_tid_t tid = 0;
+      op->tid = 0;
       _op_submit(op, rl, &tid);
     }
   });
@@ -2446,6 +2447,11 @@ void Objecter::_op_submit_with_budget(Op *op,
     }
   }
 
+  // Assign TID unconditionally before creating the split op
+  if (op->tid == 0) {
+    op->tid = ++last_tid;
+  }
+
   if (osd_timeout > timespan(0)) {
     if (op->tid == 0)
       op->tid = ++last_tid;
@@ -2459,12 +2465,13 @@ void Objecter::_op_submit_with_budget(Op *op,
   bool was_split = SplitOp::create(op, *this, sul, cct);
 
   if (was_split) {
-    // All the ops have been sent, but we need to track the op with a tid.
-    if (op->tid == 0) {
-      op->tid = ++last_tid;
-    }
-    *ptid = op->tid;
     unique_lock sl(homeless_session->lock);
+    // All the ops have been sent, but we need to track the op with a tid.
+    if (ptid) {
+      *ptid = op->tid;
+    }
+
+    ldout(cct, 2) << __func__ << " assigning parent op with tid " << op->tid << " to the homeless session." << dendl;
     _session_op_assign(homeless_session, op);
     inflight_ops++;
     sl.unlock();
@@ -2656,6 +2663,7 @@ void Objecter::_op_submit(Op *op, shunique_lock<ceph::shared_mutex>& sul, ceph_t
 		 << op->target.target_oloc << "' " << op->ops << " tid "
 		 << op->tid << " osd." << (!s->is_homeless() ? s->osd : -1)
 		 << dendl;
+  ldout(cct, 2) << "_op_submit called for op with tid " << op->tid << dendl;
 
   _session_op_assign(s, op);
 
@@ -2720,12 +2728,12 @@ int Objecter::op_cancel(OSDSession *s, ceph_tid_t tid, int r,
     // need to be canceled.  This op should end up being canceled by the
     // generated completions.
     for (auto sub_tid : tids) {
-      ldout(cct, 10) << __func__ << " SplitOp:: cancel tid " << tid
+      ldout(cct, 2) << __func__ << " SplitOp:: cancel tid " << tid
                << " sub_tid " << sub_tid
                << " in session " << s->osd << dendl;
       int ret = _op_cancel(sub_tid, r);
       if (ret != 0) {
-        ldout(cct, 20) << __func__ << " unexpected error canceling sub_tid "
+        ldout(cct, 2) << __func__ << " unexpected error canceling sub_tid "
                       << sub_tid << ": " << ret << dendl;
       }
     }
@@ -3969,7 +3977,7 @@ void Objecter::complete_op_reply(Op *op, bs::error_code handler_error, OSDSessio
   /* get it before we call _finish_op() */
   auto completion_lock = s->get_lock(op->target.base_oid);
 
-  ldout(cct, 15) << "handle_osd_op_reply completed tid " << op->tid << dendl;
+  ldout(cct, 2) << "handle_osd_op_reply completed tid " << op->tid << dendl;
   _finish_op(op, 0);
 
   ldout(cct, 5) << num_in_flight << " in flight" << dendl;
