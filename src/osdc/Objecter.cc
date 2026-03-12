@@ -2371,9 +2371,9 @@ void Objecter::op_post_split_op_complete(Op* op, bs::error_code ec, int rc) {
 
   // If the parent op was already removed from its session by a map change, then
   // ignore the completion here.
-  if (!op->session) {
-    return;
-  }
+  // if (!op->session) {
+  //   return;
+  // }
 
   // While the following post is scheduled, this op is considered "in flight".
   // If a new osdmap is published, this op might be cancelled/redriven, etc..
@@ -2393,6 +2393,22 @@ void Objecter::op_post_split_op_complete(Op* op, bs::error_code ec, int rc) {
     if (freed || !op->session || op->target.epoch != epoch) {
       return;
     }
+
+    // START OF PROOF OF CONCEPT FIX
+    // If the op doesn't have a session, the split ops completion beat the submit thread
+    // Assign it to the homeless session now so it can cleanly complete.
+
+    if (!op->session) {
+      ldout(cct, 2) << __func__ << " RACE CAUGHT: op " << op->tid
+                    << " completed before session assignment. Assigning to homeless." << dendl;
+      unique_lock hasl(homeless_session->lock);
+      if (!op->session) { // double check
+        _session_op_assign(homeless_session, op);
+        inflight_ops++;
+      }
+    }
+
+    // END OF PROOF OF CONCEPT FIX
 
     shunique_lock rl(rwlock, ceph::acquire_shared);
     ceph_assert(op->session);
@@ -2475,9 +2491,17 @@ void Objecter::_op_submit_with_budget(Op *op,
       *ptid = op->tid;
     }
 
-    ldout(cct, 2) << __func__ << " assigning parent op with tid " << op->tid << " to the homeless session." << dendl;
-    _session_op_assign(homeless_session, op);
-    inflight_ops++;
+    // --- Proof of ceoncept fix start ---
+    // Only assign it if the fast network thread didn't beat the assignment
+    if (!op->session) {
+      ldout(cct, 2) << __func__ << " assigning parent op with tid " << op->tid << " to the homeless session." << dendl;
+      _session_op_assign(homeless_session, op);
+      inflight_ops++;
+    } else {
+      ldout(cct, 2) << __func__ << " parent op with tid " << op->tid << " was already assigned by the completion thread." << dendl;
+    }
+    // -----------------
+
     sl.unlock();
     put_session(homeless_session);
   } else {
