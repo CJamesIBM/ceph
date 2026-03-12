@@ -2390,7 +2390,7 @@ void Objecter::op_post_split_op_complete(Op* op, bs::error_code ec, int rc) {
 
     bool freed = op->get_nref() == 1;
     op->put();
-    if (freed || !op->session || op->target.epoch != epoch) {
+    if (freed || op->target.epoch != epoch) {
       return;
     }
 
