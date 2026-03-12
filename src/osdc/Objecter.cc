@@ -2404,12 +2404,16 @@ void Objecter::op_post_split_op_complete(Op* op, bs::error_code ec, int rc) {
       // This function unlocks sl.
       complete_op_reply(op, ec, op->session, sl, rc);
     } else {
-      ldout(cct, 2) << __func__ << "EAGAIN returned, resubmitting op for tid " << op->tid << dendl;
+      ceph_tid_t old_tid = op->tid;
+      ldout(cct, 2) << "EAGAIN returned, resubmitting op for tid " << op->tid << dendl;
       _session_op_remove(op->session, op);
       sl.unlock();
       op->split_op_tids.reset();
+
       ceph_tid_t tid = 0;
       _op_submit(op, rl, &tid);
+
+      ldout(cct, 2) << " this is the retried op with tid " << tid << " it used to be tid " << old_tid << dendl;
     }
   });
 }
