@@ -2427,7 +2427,6 @@ void Objecter::add_op_to_splitop_session(Op *op) {
   _session_op_assign(splitop_session, op);
   inflight_ops++;
   sl.unlock();
-  put_session(splitop_session);
 }
 
 void Objecter::_op_submit_with_budget(Op *op,
