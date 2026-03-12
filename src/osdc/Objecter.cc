@@ -2494,7 +2494,7 @@ void Objecter::_op_submit_with_budget(Op *op,
     // --- Proof of ceoncept fix start ---
     // Only assign it if the fast network thread didn't beat the assignment
     if (!op->session) {
-      ldout(cct, 2) << __func__ << " assigning parent op with tid " << op->tid << " to the homeless session." << dendl;
+      ldout(cct, 2) << __func__ << " assigning parent op with tid " << op->tid << " to the homeless session[NEW]." << dendl;
       _session_op_assign(homeless_session, op);
       inflight_ops++;
     } else {
