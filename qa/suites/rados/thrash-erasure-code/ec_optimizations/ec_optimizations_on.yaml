@@ -4,3 +4,7 @@ overrides:
       global:
         enable experimental unrecoverable data corrupting features: '*'
         osd_pool_default_flag_ec_optimizations: true
+      client:
+        debug objecter: 20
+        debug rados: 20
+        debug ms: 1
