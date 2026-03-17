@@ -7,7 +7,7 @@ overrides:
         rados_replica_read_policy: balance
         osd_pool_default_flags: 1048576
       osd:
-        rados_replica-read_policy: balance
+        rados_replica_read_policy: balance
       client:
         debug objecter: 20
         debug rados: 20
