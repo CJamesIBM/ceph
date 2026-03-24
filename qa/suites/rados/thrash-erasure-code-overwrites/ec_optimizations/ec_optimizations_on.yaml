@@ -4,3 +4,6 @@ overrides:
       global:
         enable experimental unrecoverable data corrupting features: '*'
         osd_pool_default_flag_ec_optimizations: true
+        rados_replica_read_policy: balance
+      osd:
+        rados_replica_read_policy: balance
