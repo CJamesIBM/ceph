@@ -7,3 +7,7 @@ overrides:
         rados_replica_read_policy: balance
       osd:
         rados_replica_read_policy: balance
+      client:
+        debug ms: 1
+        debug objecter: 20
+        debug rados: 20
