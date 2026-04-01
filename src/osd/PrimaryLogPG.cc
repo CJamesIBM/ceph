@@ -16110,9 +16110,6 @@ int PrimaryLogPG::getattrs_maybe_cache(
   return r;
 }
 
-#undef dout_prefix
-#define dout_prefix _prefix(_dout, this)
-
 int PrimaryLogPG::get_internal_versions(const hobject_t& soid,
                                         std::map<shard_id_t, eversion_t>* out) {
   ObjectContextRef obc = get_object_context(soid, false);
@@ -16129,10 +16126,6 @@ int PrimaryLogPG::get_internal_versions(const hobject_t& soid,
       out->at(shard) = version;
     }
   } else {
-    // --- DEBUG PRINT ---
-    dout(10) << __func__ << ": returning pg_whoami.shard=" << pg_whoami.shard
-             << ", version=" << obc->obs.oi.version << dendl;
-    // -------------------
     (*out)[pg_whoami.shard] = obc->obs.oi.version;
   }
   return 0;
