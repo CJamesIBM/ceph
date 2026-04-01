@@ -448,16 +448,6 @@ bool ReplicaSplitOp::version_mismatch() const {
     std::map<shard_id_t, eversion_t> shard_vers;
     decode(shard_vers, sub_read.internal_version->bl);
 
-    // --- DEBUG PRINT ---
-    ldout(cct, DBG_LVL) << __func__ << ": decoded shard_vers size=" << shard_vers.size()
-                        << " for acting_index=" << acting_index << dendl;
-    for (const auto& [shard, version] : shard_vers) {
-      ldout(cct, DBG_LVL) << __func__ << ":   -> shard=" << shard
-                          << ", version=" << version << dendl;
-    }
-    // -------------------
-
-
     if (!shard_vers.contains(NO_SHARD)) {
       ldout(cct, DBG_LVL) << __func__ << ": "
         << "Replica version missing for acting index, failing split op." << dendl;
