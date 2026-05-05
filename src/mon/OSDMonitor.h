@@ -524,6 +524,7 @@ private:
   int prepare_pool_size(const unsigned pool_type,
 			const std::string &erasure_code_profile,
                         uint8_t repl_size,
+			int64_t ec_num_zones,
 			unsigned *size, unsigned *min_size,
 			std::ostream *ss);
   int prepare_pool_stripe_width(const unsigned pool_type,
@@ -548,6 +549,7 @@ private:
 		       std::string pg_autoscale_mode,
 		       bool bulk,
 		       bool crimson,
+		       int64_t ec_num_zones,
 		       std::ostream *ss);
   int prepare_new_pool(MonOpRequestRef op);
 

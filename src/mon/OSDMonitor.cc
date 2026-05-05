@@ -7453,6 +7453,7 @@ int OSDMonitor::prepare_new_pool(MonOpRequestRef op)
 			 erasure_code_profile,
 			 pg_pool_t::TYPE_REPLICATED, 0, FAST_READ_OFF, {}, bulk,
 			 cct->_conf.get_val<bool>("osd_pool_default_crimson"),
+			 1, // ec_num_zones default
 			 &ss);
 
   if (ret < 0) {
@@ -7768,6 +7769,7 @@ int OSDMonitor::parse_erasure_code_profile(const vector<string> &erasure_code_pr
 int OSDMonitor::prepare_pool_size(const unsigned pool_type,
 				  const string &erasure_code_profile,
                                   uint8_t repl_size,
+				  int64_t ec_num_zones,
 				  unsigned *size, unsigned *min_size,
 				  ostream *ss)
 {
@@ -7804,18 +7806,8 @@ int OSDMonitor::prepare_pool_size(const unsigned pool_type,
       if (err == 0) {
  unsigned base_size = erasure_code->get_chunk_count();
  
- // Get num_zones from the EC profile, default to 1
- ErasureCodeProfile profile = osdmap.get_erasure_code_profile(erasure_code_profile);
- int num_zones = 1;
- auto it = profile.find("num_zones");
- if (it != profile.end()) {
-   std::string err_str;
-   num_zones = strict_strtol(it->second.c_str(), 10, &err_str);
-   if (!err_str.empty() || num_zones < 1) {
-     *ss << "invalid num_zones value in erasure code profile: " << it->second;
-     return -EINVAL;
-   }
- }
+ // Use num_zones from parameter
+ int num_zones = ec_num_zones;
  
  *size = num_zones * base_size;
  *min_size =
@@ -8122,6 +8114,7 @@ int OSDMonitor::prepare_new_pool(string& name,
 				 string pg_autoscale_mode,
 				 bool bulk,
 				 bool crimson,
+				 int64_t ec_num_zones,
 				 ostream *ss)
 {
   if (crimson && pg_autoscale_mode.empty()) {
@@ -8189,7 +8182,7 @@ int OSDMonitor::prepare_new_pool(string& name,
   }
   unsigned size, min_size;
   r = prepare_pool_size(pool_type, erasure_code_profile, repl_size,
-                        &size, &min_size, ss);
+                        ec_num_zones, &size, &min_size, ss);
   if (r) {
     dout(10) << "prepare_pool_size returns " << r << dendl;
     return r;
@@ -8343,20 +8336,8 @@ int OSDMonitor::prepare_new_pool(string& name,
 
   if (pool_type == pg_pool_t::TYPE_ERASURE) {
       pi->erasure_code_profile = erasure_code_profile;
-      
-      // Set NUM_ZONES from the EC profile
-      ErasureCodeProfile profile = osdmap.get_erasure_code_profile(erasure_code_profile);
-      auto it = profile.find("num_zones");
-      if (it != profile.end()) {
-        std::string err_str;
-        int num_zones = strict_strtol(it->second.c_str(), 10, &err_str);
-        if (err_str.empty() && num_zones >= 1) {
-          pi->opts.set(pool_opts_t::NUM_ZONES, static_cast<int64_t>(num_zones));
-        }
-      } else {
-        // Default to 1 if not specified
-        pi->opts.set(pool_opts_t::NUM_ZONES, static_cast<int64_t>(1));
-      }
+      // Set NUM_ZONES from command parameter
+      pi->opts.set(pool_opts_t::NUM_ZONES, ec_num_zones);
   } else {
       pi->erasure_code_profile = "";
   }
@@ -8472,16 +8453,11 @@ int OSDMonitor::enable_pool_ec_optimizations(pg_pool_t &p,
     // across all zones: shard + (k+m)*zone for each zone
     p.nonprimary_shards.clear();
     
-    // Get num_zones from the EC profile, default to 1
-    ErasureCodeProfile profile = osdmap.get_erasure_code_profile(p.erasure_code_profile);
-    int num_zones = 1;
-    auto it = profile.find("num_zones");
-    if (it != profile.end()) {
-      std::string err_str;
-      num_zones = strict_strtol(it->second.c_str(), 10, &err_str);
-      if (!err_str.empty() || num_zones < 1) {
-        num_zones = 1;
-      }
+    // Get num_zones from pool opts, default to 1
+    int64_t num_zones = 1;
+    p.opts.get(pool_opts_t::NUM_ZONES, &num_zones);
+    if (num_zones < 1) {
+      num_zones = 1;
     }
     
     for (raw_shard_id_t raw_shard(0); raw_shard < k + m; ++raw_shard) {
@@ -13880,28 +13856,113 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
     cmd_getval(cmdmap, "rule", rule_name);
     string erasure_code_profile;
     cmd_getval(cmdmap, "erasure_code_profile", erasure_code_profile);
+    int64_t ec_k = 0, ec_m = 0, ec_num_zones = 1;
+    cmd_getval(cmdmap, "ec_k", ec_k);
+    cmd_getval(cmdmap, "ec_m", ec_m);
+    cmd_getval(cmdmap, "ec_num_zones", ec_num_zones);
+
+    bool has_ec_params = (ec_k > 0 && ec_m > 0);
+    bool has_profile = !erasure_code_profile.empty();
+
+    if (pool_type == pg_pool_t::TYPE_ERASURE && has_ec_params && has_profile) {
+      ss << "cannot specify both erasure_code_profile and ec_k/ec_m/ec_num_zones parameters";
+      err = -EINVAL;
+      goto reply_no_propose;
+    }
 
     if (pool_type == pg_pool_t::TYPE_ERASURE) {
-      if (erasure_code_profile == "")
-	erasure_code_profile = "default";
-      //handle the erasure code profile
-      if (erasure_code_profile == "default") {
-	if (!osdmap.has_erasure_code_profile(erasure_code_profile)) {
-	  if (pending_inc.has_erasure_code_profile(erasure_code_profile)) {
-	    dout(20) << "erasure code profile " << erasure_code_profile << " already pending" << dendl;
-	    goto wait;
-	  }
+      if ((ec_k > 0 && ec_m == 0) || (ec_k == 0 && ec_m > 0)) {
+        ss << "erasure_code_profile requires both ec_k and ec_m";
+        err = -EINVAL;
+        goto reply_no_propose;
+      }
+    }
 
-	  map<string,string> profile_map;
-	  err = osdmap.get_erasure_code_profile_default(cct,
-						      profile_map,
-						      &ss);
-	  if (err)
-	    goto reply_no_propose;
-	  dout(20) << "erasure code profile " << erasure_code_profile << " set" << dendl;
-	  pending_inc.set_erasure_code_profile(erasure_code_profile, profile_map);
-	  goto wait;
-	}
+    if (pool_type == pg_pool_t::TYPE_ERASURE) {
+
+      if (has_ec_params) {
+        if (ec_k < 2) {
+          ss << "k=" << ec_k << " must be >= 2";
+          err = -EINVAL;
+          goto reply_no_propose;
+        }
+        auto max_k_plus_m = std::numeric_limits<decltype(shard_id_t::id)>::max();
+        if (ec_k + ec_m > max_k_plus_m) {
+          ss << "(k+m)=" << (ec_k + ec_m) << " must be <= " << max_k_plus_m;
+          err = -EINVAL;
+          goto reply_no_propose;
+        }
+      
+        if (ec_num_zones < 1) {
+          ss << "erasure_code_profile requires ec_num_zones >= 1";
+          err = -EINVAL;
+          goto reply_no_propose;
+        }
+
+        ostringstream profile_name_stream;
+        profile_name_stream << poolstr << "-ec-k" << ec_k << "-m" << ec_m;
+        string auto_profile_name = profile_name_stream.str();
+
+        if (osdmap.has_erasure_code_profile(auto_profile_name)) {
+          const map<string,string> &existing_profile = osdmap.get_erasure_code_profile(auto_profile_name);
+          
+          auto it_k = existing_profile.find("k");
+          auto it_m = existing_profile.find("m");
+          
+          bool params_match = (it_k != existing_profile.end() && it_k->second == to_string(ec_k)) &&
+                              (it_m != existing_profile.end() && it_m->second == to_string(ec_m));
+          
+          if (!params_match) {
+            ss << "EC profile '" << auto_profile_name << "' already exists with different parameters";
+            err = -EEXIST;
+            goto reply_no_propose;
+          }
+          
+          erasure_code_profile = auto_profile_name;
+        } else {
+          // Profile doesn't exist - create it
+          map<string,string> profile_map;
+          err = osdmap.get_erasure_code_profile_default(cct, profile_map, &ss);
+          if (err)
+            goto reply_no_propose;
+
+          profile_map["k"] = to_string(ec_k);
+          profile_map["m"] = to_string(ec_m);
+
+          err = normalize_profile(auto_profile_name, profile_map, false, &ss);
+          if (err)
+            goto reply_no_propose;
+
+          if (pending_inc.has_erasure_code_profile(auto_profile_name)) {
+            dout(20) << "EC profile " << auto_profile_name << " is already pending" << dendl;
+            goto wait;
+          }
+
+          dout(20) << "auto-creating EC Profile " << auto_profile_name << "=" << profile_map << dendl;
+
+          pending_inc.set_erasure_code_profile(auto_profile_name, profile_map);
+
+          erasure_code_profile = auto_profile_name;
+          goto wait;
+        }
+      } else {
+        if (erasure_code_profile == "")
+          erasure_code_profile = "default";
+        if (erasure_code_profile == "default") {
+          if (!osdmap.has_erasure_code_profile(erasure_code_profile)) {
+            if (pending_inc.has_erasure_code_profile(erasure_code_profile)) {
+              dout(20) << "EC profile " << erasure_code_profile << " is already pending" << dendl;
+              goto wait;
+            }
+            map<string,string> profile_map;
+            err = osdmap.get_erasure_code_profile_default(cct, profile_map, &ss);
+            if (err)
+              goto reply_no_propose;
+            dout(20) << "erasure code profile " << erasure_code_profile << " set" << dendl;
+            pending_inc.set_erasure_code_profile(erasure_code_profile, profile_map);
+            goto wait;
+          }
+        }
       }
       if (rule_name == "") {
 	implicit_rule_creation = true;
@@ -13984,6 +14045,7 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
 			   pg_autoscale_mode,
 			   bulk,
 			   crimson,
+			   ec_num_zones,
 			   &ss);
     if (err < 0) {
       switch(err) {
