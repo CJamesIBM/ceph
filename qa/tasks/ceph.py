@@ -374,7 +374,6 @@ def _apply_crush_zones(mon_remote, cluster_name, crush_config):
     log.info(f"Applying CRUSH zone configuration with {len(zones)} zones, "
              f"failure_domain={failure_domain}")
     
-    # Create datacenter buckets for each zone
     for zone in zones:
         zone_name = zone['name']
         log.info(f"Creating datacenter bucket: {zone_name}")
@@ -383,16 +382,13 @@ def _apply_crush_zones(mon_remote, cluster_name, crush_config):
                   'osd', 'crush', 'add-bucket', zone_name, 'datacenter']
         )
         
-        # Move zone under default root
         log.info(f"Moving {zone_name} to root=default")
         mon_remote.run(
             args=['sudo', 'ceph', '--cluster', cluster_name,
                   'osd', 'crush', 'move', zone_name, 'root=default']
         )
     
-    # Assign OSDs to zones based on failure domain
     if failure_domain == 'osd':
-        # Direct OSD assignment to datacenter
         for zone in zones:
             zone_name = zone['name']
             for osd_id in zone['osds']:
@@ -404,7 +400,6 @@ def _apply_crush_zones(mon_remote, cluster_name, crush_config):
                 )
     
     elif failure_domain == 'host':
-        # Create host buckets within datacenters
         for zone in zones:
             zone_name = zone['name']
             hosts = zone.get('hosts', [])
@@ -433,7 +428,6 @@ def _apply_crush_zones(mon_remote, cluster_name, crush_config):
                               f'host={host_name}']
                     )
     
-    # Set monitor locations
     for zone in zones:
         zone_name = zone['name']
         for mon_id in zone.get('monitors', []):
@@ -443,13 +437,12 @@ def _apply_crush_zones(mon_remote, cluster_name, crush_config):
                       'mon', 'set_location', mon_id, f'datacenter={zone_name}']
             )
     
-    # Set tiebreak monitor location if specified
     tiebreak_monitor = crush_config.get('tiebreak_monitor')
     if tiebreak_monitor:
-        log.info(f"Setting mon.{tiebreak_monitor} location to datacenter=arbiter")
+        log.info(f"Setting mon.{tiebreak_monitor} location to datacenter=tiebreak")
         mon_remote.run(
             args=['sudo', 'ceph', '--cluster', cluster_name,
-                  'mon', 'set_location', tiebreak_monitor, 'datacenter=arbiter']
+                  'mon', 'set_location', tiebreak_monitor, 'datacenter=tiebreak']
         )
 
 
@@ -458,7 +451,7 @@ def crush_zone_setup(ctx, config):
     """
     Configure CRUSH map with zones for stretch EC pools.
     
-    Reads explicit CRUSH configuration from overrides/ceph/pool-config/crush_map_config
+    Reads CRUSH configuration from overrides/ceph/pool-config/crush_map_config
     and applies it to the cluster. This is required for stretch erasure-coded pools
     (num_zones > 1).
     
@@ -500,7 +493,7 @@ def crush_zone_setup(ctx, config):
                         osds: [2, 6, 10]
                       - name: host3
                         osds: [3, 7, 11]
-                arbiter_monitor: c
+                tiebreak_monitor: c
     
 
     :param ctx: Test context
@@ -510,7 +503,6 @@ def crush_zone_setup(ctx, config):
     first_mon = teuthology.get_first_mon(ctx, config, cluster_name)
     (mon_remote,) = ctx.cluster.only(first_mon).remotes.keys()
     
-    # Get pool configuration from overrides
     pool_config = config.get('pool-config', {})
     crush_config = pool_config.get('crush_map_config')
     
@@ -522,7 +514,6 @@ def crush_zone_setup(ctx, config):
     log.info('Setting up CRUSH zones from explicit configuration')
     
     try:
-        # Apply CRUSH map changes
         _apply_crush_zones(mon_remote, cluster_name, crush_config)
         log.info('CRUSH zone setup complete')
         
