@@ -363,10 +363,10 @@ def _apply_crush_zones(mon_remote, cluster_name, crush_config):
     """
     Apply CRUSH zone configuration to the cluster.
     
-    Args:
-        mon_remote: Remote connection to monitor
-        cluster_name: Name of the cluster
-        crush_config: CRUSH configuration dict with zones
+
+    :param mon_remote: Remote connection to monitor
+    :param cluster_name: Name of the cluster
+    :param crush_config: CRUSH configuration dict with zones
     """
     zones = crush_config.get('zones', [])
     failure_domain = crush_config.get('failure_domain', 'osd')
@@ -502,9 +502,9 @@ def crush_zone_setup(ctx, config):
                         osds: [3, 7, 11]
                 arbiter_monitor: c
     
-    Args:
-        ctx: Test context
-        config: Ceph configuration
+
+    :param ctx: Test context
+    :param config: Ceph configuration
     """
     cluster_name = config['cluster']
     first_mon = teuthology.get_first_mon(ctx, config, cluster_name)
@@ -527,7 +527,7 @@ def crush_zone_setup(ctx, config):
         log.info('CRUSH zone setup complete')
         
     except Exception as e:
-        log.error(f'Failed to setup CRUSH zones: {e}')
+        log.error('Failed to setup CRUSH zones: %s', e)
         raise
     
     yield
