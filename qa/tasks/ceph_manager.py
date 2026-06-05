@@ -2263,11 +2263,11 @@ class CephManager:
                     cmd_args.extend([erasure_code_crush_rule_name])
 
                 if num_zones is not None:
-                    cmd_args.extend(['num_zones', str(num_zones)])
+                    cmd_args.extend(['--num_zones', str(num_zones)])
                 self.raw_cluster_cmd(*cmd_args)
             else:
                 if num_zones is not None:
-                    cmd_args.extend(['num_zones', str(num_zones)])
+                    cmd_args.extend(['--num_zones', str(num_zones)])
                 self.raw_cluster_cmd('osd', 'pool', 'create',
                                      pool_name, str(pg_num))
             if min_size is not None:
