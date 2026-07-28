@@ -1764,7 +1764,11 @@ int librados::IoCtxImpl::notify_ack(
   ::ObjectOperation rd;
   prepare_assert_ops(&rd);
   rd.notify_ack(notify_id, cookie, bl);
-  objecter->read(oid, oloc, rd, snap_seq, (bufferlist*)NULL, extra_op_flags, 0, 0);
+  // notify_ack must go to the primary OSD; strip any replica-read flags so
+  // that Objecter does not route this to a non-primary replica.
+  int flags = extra_op_flags &
+              ~(CEPH_OSD_FLAG_BALANCE_READS | CEPH_OSD_FLAG_LOCALIZE_READS);
+  objecter->read(oid, oloc, rd, snap_seq, (bufferlist*)NULL, flags, 0, 0);
   return 0;
 }
 

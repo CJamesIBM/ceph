@@ -1630,8 +1630,12 @@ void RADOS::notify_ack_(Object o, IOContext _ioc,
   ObjectOperation op;
   op.notify_ack(notify_id, cookie, bl);
 
+  // notify_ack must go to the primary OSD; strip any replica-read flags so
+  // that Objecter does not route this to a non-primary replica.
+  int flags = ioc->extra_op_flags &
+              ~(CEPH_OSD_FLAG_BALANCE_READS | CEPH_OSD_FLAG_LOCALIZE_READS);
   impl->objecter->read(*oid, ioc->oloc, std::move(op), ioc->snap_seq,
-		       nullptr, ioc->extra_op_flags, std::move(c));
+		       nullptr, flags, std::move(c));
 }
 
 tl::expected<ceph::timespan, bs::error_code> RADOS::check_watch(uint64_t cookie)
