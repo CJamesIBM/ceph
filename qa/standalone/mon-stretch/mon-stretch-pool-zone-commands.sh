@@ -111,6 +111,35 @@ function rule_takes() {
     ceph osd crush rule dump $1 | jq -r '[.steps[]|select(.op=="take")|.item_name]|join(",")'
 }
 
+function rule_zone_type() {
+    ceph osd crush rule dump $1 |
+        jq -r '[.steps[]|select(.op=="choose_firstn")|.type]|join(",")'
+}
+
+# create-erasure takes the zone type of a rule over zones from the profile,
+# else from osd_pool_default_zone_failure_domain, as pool creation does: a
+# profile has crush-zone-failure-domain only if it is given
+function TEST_create_erasure_zone_type() {
+    local dir=$1
+    two_zone_cluster $dir || return 1
+
+    ceph osd erasure-code-profile set small plugin=jerasure k=2 m=1 \
+        crush-failure-domain=osd || return 1
+    ! ceph osd erasure-code-profile get small | grep crush-zone-failure-domain || return 1
+    ceph config set mon osd_pool_default_zone_failure_domain host || return 1
+    expect_failure $dir "for type host is not equal to num_failure_domains 2" \
+        ceph osd crush rule create-erasure by_option small 2 || return 1
+    ceph config set mon osd_pool_default_zone_failure_domain datacenter || return 1
+    ceph osd crush rule create-erasure by_option small 2 || return 1
+    test "$(rule_zone_type by_option)" = datacenter || return 1
+
+    ceph osd erasure-code-profile set dcs plugin=jerasure k=2 m=1 \
+        crush-failure-domain=osd crush-zone-failure-domain=datacenter || return 1
+    ceph config set mon osd_pool_default_zone_failure_domain host || return 1
+    ceph osd crush rule create-erasure by_profile dcs 2 || return 1
+    test "$(rule_zone_type by_profile)" = datacenter || return 1
+}
+
 # --root confines a pool to a subtree, and --class to a device class, also
 # when replica changes
 function TEST_root_and_class_rules() {
